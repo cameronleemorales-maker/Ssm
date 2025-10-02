@@ -75,14 +75,15 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android platforms & build-tools
+      -- name: Install Android platforms & build-tools
         shell: bash
         run: |
           set -e
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platform-tools" \
-                     "platforms;android-34" \
-                     "build-tools;34.0.0"
+          # Accept licenses one by one
+          yes | sdkmanager --licenses || true
+          sdkmanager --install "platform-tools" \
+                               "platforms;android-34" \
+                               "build-tools;34.0.0"
 
       # --- Gradle cache (optional but speeds builds) ---
       - name: Set up Gradle cache
