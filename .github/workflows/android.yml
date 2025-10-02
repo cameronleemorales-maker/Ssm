@@ -10,15 +10,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ───────── CHECKOUT ─────────
       - name: Checkout
-      - uses: actions/checkout@v4
+        uses: actions/checkout@v4
 
+      # ───────── JDK ─────────
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # ───────── ANDROID SDK ─────────
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -30,7 +33,7 @@ jobs:
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v3
 
-      # ───────── ZIP → PROJECT ─────────
+      # ───────── ZIP HANDLING ─────────
       - name: Locate ZIP (repo root)
         id: findzip
         run: |
@@ -72,19 +75,16 @@ jobs:
 
       - name: Build Debug APK
         run: |
-          set -e
           cd "${{ steps.findroot.outputs.root }}"
-          if [ -x "./gradlew" ]; then
-            ./gradlew --no-daemon assembleDebug
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace
           else
-            gradle --no-daemon assembleDebug
+            gradle assembleDebug --stacktrace
           fi
 
-      # ───────── ARTIFACTS ─────────
-      - name: Upload Debug APK(s)
+      # ───────── ARTIFACT UPLOAD ─────────
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: debug-apks
-          path: |
-            ${{ steps.findroot.outputs.root }}/**/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          name: SalesMaster-Debug
+          path: ${{ steps.findroot.outputs.root }}/app/build/outputs/apk/debug/*.apk
