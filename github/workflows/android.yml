@@ -1,0 +1,79 @@
+name: Android CI (build from ZIP)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      ZIP_NAME: SalesMaster.zip   # <-- put your ZIP file name here (at repo root)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify ZIP exists
+        run: |
+          ls -la
+          test -f "$ZIP_NAME" || (echo "ZIP '$ZIP_NAME' not found in repo root." && exit 1)
+
+      - name: Unzip project
+        run: |
+          mkdir -p project
+          unzip -q "$ZIP_NAME" -d project
+          echo "Unzipped contents:"
+          ls -la project
+
+      - name: Locate Gradle project root
+        id: findroot
+        shell: bash
+        run: |
+          # Find a directory containing settings.gradle or settings.gradle.kts
+          ROOT_DIR=$(find project -maxdepth 4 -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -printf '%h\n' | head -n 1)
+          if [ -z "$ROOT_DIR" ]; then
+            echo "No settings.gradle found inside ZIP."
+            exit 1
+          fi
+          echo "Found project root: $ROOT_DIR"
+          echo "ROOT_DIR=$ROOT_DIR" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platforms & build-tools
+        run: |
+          sdkmanager "platform-tools" \
+                     "platforms;android-33" \
+                     "build-tools;33.0.1"
+
+      - name: Set up Gradle 8.x cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build (use wrapper if present, otherwise system gradle)
+        working-directory: ${{ steps.findroot.outputs.ROOT_DIR }}
+        shell: bash
+        run: |
+          if [ -x "./gradlew" ]; then
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
+          fi
+
+      - name: Upload Debug APK(s)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SalesMaster-debug-apks
+          path: |
+            ${{ steps.findroot.outputs.ROOT_DIR }}/**/outputs/apk/debug/*.apk
+            ${{ steps.findroot.outputs.ROOT_DIR }}/**/outputs/apk/*/debug/*.apk
+          if-no-files-found: error
