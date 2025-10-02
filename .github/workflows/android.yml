@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      ZIP_NAME: SalesMaster.zip   # <-- put your ZIP file name here (at repo root)
+      ZIP_NAME: Salesmaster.zip   # <-- put your ZIP file name here (at repo root)
 
     steps:
       - name: Checkout
