@@ -1,4 +1,4 @@
-name: Android CI (APK)
+name: Android CI (ZIP → APK)
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -19,39 +19,72 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Pin Gradle to a stable version (avoids Gradle 9.x incompat errors)
-      - name: Set up Gradle 8.2.1
-        uses: gradle/gradle-build-action@v2
-        with:
-          gradle-version: 8.2.1
-          cache-read-only: false
-
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android platforms & build-tools
         run: |
-          sdkmanager --install "platforms;android-33" "build-tools;33.0.1" > /dev/null
+          sdkmanager --install "platforms;android-33" "build-tools;33.0.1"
           yes | sdkmanager --licenses
 
-      # Build with wrapper if present, otherwise use the system gradle (8.2.1)
-      - name: Build (use wrapper if present, otherwise system gradle)
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      # ───────── ZIP → PROJECT ─────────
+      - name: Locate ZIP (repo root)
+        id: findzip
         run: |
-          if [ -x "./gradlew" ]; then
-            echo "Using project Gradle wrapper"
-            ./gradlew --version
-            ./gradlew assembleDebug
-          else
-            echo "No wrapper found — using system Gradle 8.2.1"
-            gradle --version
-            gradle assembleDebug
+          set -e
+          ZIP_FILE="$(ls -1 *.zip 2>/dev/null | head -n1 || true)"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No .zip found in repo root. Make sure your app ZIP is committed at the top level." >&2
+            exit 1
+          fi
+          echo "zip=$ZIP_FILE" >> "$GITHUB_OUTPUT"
+          echo "Found ZIP: $ZIP_FILE"
+
+      - name: Unzip project
+        run: |
+          rm -rf project
+          unzip -q -o "${{ steps.findzip.outputs.zip }}" -d project
+          echo "Unzipped contents:"
+          find project -maxdepth 2 -type f -printf "%P\n" | sed -e 's/^/  - /'
+
+      - name: Detect Gradle project root
+        id: findroot
+        run: |
+          set -e
+          ROOT_DIR="$(find project -maxdepth 2 -type f \( -name 'settings.gradle' -o -name 'settings.gradle.kts' \) -printf '%h\n' | head -n1)"
+          if [ -z "$ROOT_DIR" ]; then
+            echo "Could not find settings.gradle(.kts) inside the unzipped folder." >&2
+            echo "Make sure the ZIP contains a standard Android project (not just the app/ folder)." >&2
+            exit 1
+          fi
+          echo "root=$ROOT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Detected Gradle root: $ROOT_DIR"
+
+      # ───────── BUILD ─────────
+      - name: Make gradlew executable (if present)
+        run: |
+          if [ -f "${{ steps.findroot.outputs.root }}/gradlew" ]; then
+            chmod +x "${{ steps.findroot.outputs.root }}/gradlew"
           fi
 
+      - name: Build Debug APK
+        run: |
+          set -e
+          cd "${{ steps.findroot.outputs.root }}"
+          if [ -x "./gradlew" ]; then
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
+          fi
+
+      # ───────── ARTIFACTS ─────────
       - name: Upload Debug APK(s)
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: debug-apks
           path: |
-            **/app/build/outputs/apk/debug/*.apk
-            **/build/outputs/apk/debug/*.apk
+            ${{ steps.findroot.outputs.root }}/**/outputs/apk/debug/*.apk
+          if-no-files-found: error
